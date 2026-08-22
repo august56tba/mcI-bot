@@ -25,10 +25,12 @@ bot = MCLBot()
 # IDs dos canais
 LOG_CHANNEL_ID = 1510486940833812670
 SCOUTING_CHANNEL_ID = 1520619945526825070
+FREE_AGENCY_CHANNEL_ID = 1496579368493777097
 
 # Cargos permitidos
 MANAGER_ROLE_ID = 1496579366765723720
 VICE_MANAGER_ROLE_ID = 1496579366736625723
+PLAYER_ROLE_ID = 1496579366698750185
 
 # Dicionário com os IDs dos times e seus emojis
 TEAM_ROLES = {
@@ -265,6 +267,254 @@ class OfferButtons(View):
         
         print(f"Oferta recusada por {interaction.user.name}")
 
+class FreeAgencyView(View):
+    def __init__(self, player_id: int, guild_id: int):
+        super().__init__(timeout=None)
+
+        self.player_id = player_id
+        self.guild_id = guild_id
+        self.finished = False
+
+        hire_button = Button(
+            label="Contratar",
+            emoji="✅",
+            style=discord.ButtonStyle.success,
+            custom_id=f"freeagency_hire_{player_id}"
+        )
+        hire_button.callback = self.hire_callback
+
+        reject_button = Button(
+            label="Recusar",
+            emoji="❌",
+            style=discord.ButtonStyle.danger,
+            custom_id=f"freeagency_reject_{player_id}"
+        )
+        reject_button.callback = self.reject_callback
+
+        self.add_item(hire_button)
+        self.add_item(reject_button)
+
+    def is_manager(self, member: discord.Member) -> bool:
+        return any(
+            role.id in (MANAGER_ROLE_ID, VICE_MANAGER_ROLE_ID)
+            for role in member.roles
+        )
+
+    async def hire_callback(self, interaction: discord.Interaction):
+
+        if self.finished:
+            await interaction.response.send_message(
+                "❌ Esta Free Agency já foi encerrada.",
+                ephemeral=True
+            )
+            return
+
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ Este botão só pode ser usado dentro do servidor.",
+                ephemeral=True
+            )
+            return
+
+        member = interaction.guild.get_member(interaction.user.id)
+
+        if not member or not self.is_manager(member):
+            await interaction.response.send_message(
+                "❌ Apenas Managers e Vice Managers podem contratar jogadores.",
+                ephemeral=True
+            )
+            return
+
+        if interaction.user.id == self.player_id:
+            await interaction.response.send_message(
+                "❌ Você não pode contratar a si mesmo!",
+                ephemeral=True
+            )
+            return
+
+        team_info = get_user_team(member)
+
+        if not team_info:
+            await interaction.response.send_message(
+                "❌ Você não possui um cargo de time.",
+                ephemeral=True
+            )
+            return
+
+        player = interaction.guild.get_member(self.player_id)
+
+        if not player:
+            await interaction.response.send_message(
+                "❌ Jogador não encontrado no servidor.",
+                ephemeral=True
+            )
+            return
+
+        # Verifica se o jogador já possui algum time
+        current_team = get_user_team(player)
+
+        if current_team:
+            await interaction.response.send_message(
+                f"❌ Este jogador já está no time **{current_team['name']}**.",
+                ephemeral=True
+            )
+            return
+
+        team_role = interaction.guild.get_role(team_info["role_id"])
+
+        if not team_role:
+            await interaction.response.send_message(
+                "❌ Cargo do time não encontrado.",
+                ephemeral=True
+            )
+            return
+
+        try:
+            await player.add_roles(team_role)
+
+            self.finished = True
+
+            for item in self.children:
+                item.disabled = True
+
+            team_name = team_info["name"]
+            team_emoji = get_team_emoji(team_info)
+
+            embed = interaction.message.embeds[0]
+
+            embed.color = discord.Color.green()
+
+            embed.add_field(
+                name="Status",
+                value=f"✅ **CONTRATADO por {interaction.user.mention}**\n"
+                      f"{team_emoji} **{team_name}**",
+                inline=False
+            )
+
+            await interaction.response.edit_message(
+                embed=embed,
+                view=self
+            )
+
+            # DM para o jogador
+            try:
+                await player.send(
+                    f"🎉 **Você foi contratado!**\n\n"
+                    f"Você foi contratado por {interaction.user.mention} "
+                    f"para o time {team_emoji} **{team_name}**."
+                )
+            except discord.Forbidden:
+                pass
+
+            # Log
+            log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+
+            if log_channel:
+                log_embed = discord.Embed(
+                    title="📋 Free Agency — Contratação",
+                    description=(
+                        f"**Jogador:** {player.mention}\n"
+                        f"**Manager:** {interaction.user.mention}\n"
+                        f"**Time:** {team_emoji} {team_name}\n"
+                        f"**Status:** ✅ Contratado"
+                    ),
+                    color=discord.Color.green()
+                )
+
+                await log_channel.send(embed=log_embed)
+
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "❌ Não tenho permissão para adicionar o cargo do time.",
+                ephemeral=True
+            )
+
+        except discord.HTTPException as e:
+            await interaction.response.send_message(
+                f"❌ Erro ao contratar o jogador: {e}",
+                ephemeral=True
+            )
+
+    async def reject_callback(self, interaction: discord.Interaction):
+
+        if self.finished:
+            await interaction.response.send_message(
+                "❌ Esta Free Agency já foi encerrada.",
+                ephemeral=True
+            )
+            return
+
+        if not interaction.guild:
+            await interaction.response.send_message(
+                "❌ Este botão só pode ser usado dentro do servidor.",
+                ephemeral=True
+            )
+            return
+
+        member = interaction.guild.get_member(interaction.user.id)
+
+        if not member or not self.is_manager(member):
+            await interaction.response.send_message(
+                "❌ Apenas Managers e Vice Managers podem recusar jogadores.",
+                ephemeral=True
+            )
+            return
+
+        if interaction.user.id == self.player_id:
+            await interaction.response.send_message(
+                "❌ Você não pode recusar a própria Free Agency.",
+                ephemeral=True
+            )
+            return
+
+        player = interaction.guild.get_member(self.player_id)
+
+        self.finished = True
+
+        for item in self.children:
+            item.disabled = True
+
+        embed = interaction.message.embeds[0]
+
+        embed.color = discord.Color.red()
+
+        embed.add_field(
+            name="Status",
+            value=f"❌ **Recusado por {interaction.user.mention}**",
+            inline=False
+        )
+
+        await interaction.response.edit_message(
+            embed=embed,
+            view=self
+        )
+
+        # DM para o jogador
+        if player:
+            try:
+                await player.send(
+                    f"❌ Sua Free Agency foi recusada por "
+                    f"{interaction.user.mention}."
+                )
+            except discord.Forbidden:
+                pass
+
+        # Log
+        log_channel = interaction.guild.get_channel(LOG_CHANNEL_ID)
+
+        if log_channel:
+            log_embed = discord.Embed(
+                title="📋 Free Agency — Recusada",
+                description=(
+                    f"**Jogador:** {player.mention if player else self.player_id}\n"
+                    f"**Manager:** {interaction.user.mention}\n"
+                    f"**Status:** ❌ Recusado"
+                ),
+                color=discord.Color.red()
+            )
+
+            await log_channel.send(embed=log_embed)
+
 class ScoutingSendButton(View):
     def __init__(self, message_content: str, manager_id: int, team_info: dict):
         super().__init__(timeout=300)
@@ -358,6 +608,120 @@ def has_manager_role():
                 return True
         return False
     return app_commands.check(predicate)
+
+@bot.tree.command(
+    name="freeagency",
+    description="Coloca você na Free Agency para ser contratado"
+)
+@app_commands.describe(
+    mensagem="Informação adicional sobre sua Free Agency"
+)
+@app_commands.checks.cooldown(1, 60.0)
+async def freeagency(
+    interaction: discord.Interaction,
+    mensagem: str = "Estou disponível para receber propostas!"
+):
+    if not interaction.guild:
+        await interaction.response.send_message(
+            "❌ Este comando só pode ser usado dentro de um servidor.",
+            ephemeral=True
+        )
+        return
+
+    if interaction.user.bot:
+        await interaction.response.send_message(
+            "❌ Bots não podem entrar na Free Agency.",
+            ephemeral=True
+        )
+        return
+
+    player = interaction.guild.get_member(interaction.user.id)
+
+    if not player:
+        await interaction.response.send_message(
+            "❌ Não consegui encontrar seu usuário no servidor.",
+            ephemeral=True
+        )
+        return
+
+    # Verifica se o usuário possui o cargo de Player
+    if not any(role.id == PLAYER_ROLE_ID for role in player.roles):
+        await interaction.response.send_message(
+            "❌ Apenas jogadores com o cargo de Player podem usar a Free Agency.",
+            ephemeral=True
+        )
+        return
+
+    # Verifica se o jogador já possui algum time
+    current_team = get_user_team(player)
+
+    if current_team:
+        await interaction.response.send_message(
+            f"❌ Este jogador já está no time **{current_team['name']}**.",
+            ephemeral=True
+        )
+        return
+
+    if len(mensagem) > 1024:
+        await interaction.response.send_message(
+            "❌ Sua mensagem pode ter no máximo 1024 caracteres.",
+            ephemeral=True
+        )
+        return
+
+    channel = interaction.guild.get_channel(FREE_AGENCY_CHANNEL_ID)
+
+    if not channel:
+        await interaction.response.send_message(
+            "❌ Canal de Free Agency não encontrado.",
+            ephemeral=True
+        )
+        return
+
+    # Embed
+    embed = discord.Embed(
+        title="⚽ FREE AGENCY",
+        description=mensagem,
+        color=discord.Color.blue()
+    )
+
+    # Avatar circular à esquerda
+    embed.set_author(
+        name=f"{player.display_name} está disponível!",
+        icon_url=player.display_avatar.url
+    )
+
+    embed.add_field(
+        name="👤 Jogador",
+        value=player.mention,
+        inline=True
+    )
+
+    embed.add_field(
+        name="📋 Status",
+        value="🟢 Disponível",
+        inline=True
+    )
+
+    embed.set_footer(
+        text=f"Player ID: {player.id}"
+    )
+
+    # Botões
+    view = FreeAgencyView(
+        player_id=player.id,
+        guild_id=interaction.guild.id
+    )
+
+    await channel.send(
+        embed=embed,
+        view=view
+    )
+
+    await interaction.response.send_message(
+        f"✅ Sua Free Agency foi publicada em {channel.mention}!",
+        ephemeral=True
+    )
 
 @bot.tree.command(name="offer", description="Envia uma oferta para um jogador via DM")
 @app_commands.describe(user="Usuário para enviar a oferta")
@@ -492,6 +856,28 @@ async def scouting(interaction: discord.Interaction, mensagem: str):
     )
 
 @bot.event
+@bot.tree.error
+async def on_app_command_error(
+    interaction: discord.Interaction,
+    error: app_commands.AppCommandError
+):
+
+    if isinstance(error, app_commands.CommandOnCooldown):
+
+        remaining = int(error.retry_after)
+
+        if remaining < 60:
+            tempo = f"{remaining} segundos"
+        else:
+            tempo = f"{remaining // 60} minuto(s)"
+
+        await interaction.response.send_message(
+            f"⏳ Você precisa esperar **{tempo}** antes de usar `/freeagency` novamente.",
+            ephemeral=True
+        )
+        return
+
+    print(f"Erro em slash command: {error}")
 async def on_ready():
     print(f' {bot.user.name} está online!')
     print(f' Conectado como: {bot.user.id}')
