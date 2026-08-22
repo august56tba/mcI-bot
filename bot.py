@@ -10,15 +10,19 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
-
+SEU_SERVIDOR_ID = 1496579366677909704
 class MCLBot(discord.Client):
     def __init__(self):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
         
-    async def setup_hook(self):
-        await self.tree.sync()
-        print("Comandos sincronizados!")
+async def setup_hook(self):
+    guild = discord.Object(id=1496579366677909704)
+
+    self.tree.copy_global_to(guild=guild)
+    await self.tree.sync(guild=guild)
+
+    print("Comandos sincronizados no servidor!")
 
 bot = MCLBot()
 
