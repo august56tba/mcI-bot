@@ -10,19 +10,18 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
-SEU_SERVIDOR_ID = 1496579366677909704
+
 class MCLBot(discord.Client):
     def __init__(self):
         super().__init__(intents=intents)
         self.tree = app_commands.CommandTree(self)
-        
-async def setup_hook(self):
-    guild = discord.Object(id=1496579366677909704)
-
-    self.tree.copy_global_to(guild=guild)
-    await self.tree.sync(guild=guild)
-
-    print("Comandos sincronizados no servidor!")
+    
+    # ===== CORREÇÃO: setup_hook DENTRO da classe =====
+    async def setup_hook(self):
+        guild = discord.Object(id=1496579366677909704)
+        self.tree.copy_global_to(guild=guild)
+        await self.tree.sync(guild=guild)
+        print("✅ Comandos sincronizados no servidor!")
 
 bot = MCLBot()
 
@@ -613,6 +612,11 @@ def has_manager_role():
         return False
     return app_commands.check(predicate)
 
+# ===== COMANDO DE TESTE =====
+@bot.tree.command(name="ping", description="Testa se o bot está funcionando")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("🏓 Pong! Bot está online!", ephemeral=True)
+
 @bot.tree.command(
     name="freeagency",
     description="Coloca você na Free Agency para ser contratado"
@@ -882,29 +886,30 @@ async def on_app_command_error(
         return
 
     print(f"Erro em slash command: {error}")
-async def on_ready():
-    print(f' {bot.user.name} está online!')
-    print(f' Conectado como: {bot.user.id}')
-    print(f' Conectado a {len(bot.guilds)} servidores')
-    print(f' Times configurados: {len(TEAM_ROLES)}')
-    print('\n Times disponíveis:')
-    for team_id, team_info in TEAM_ROLES.items():
-        emoji = get_team_emoji(team_info)
-        print(f'   - {team_info["name"]} (ID: {team_id}) - Emoji: {emoji}')
-
 @bot.event
-async def on_error(event, *args, **kwargs):
-    print(f"Erro no evento {event}: {args} {kwargs}")
+async def on_ready():
+    print(f'✅ {bot.user.name} está online!')
+    print(f'📡 Conectado como: {bot.user.id}')
+    print(f'📡 Conectado a {len(bot.guilds)} servidores')
+    print(f'🏆 Times configurados: {len(TEAM_ROLES)}')
+    
+    # Sincronizar comandos novamente (garantia)
+    try:
+        guild = discord.Object(id=1496579366677909704)
+        await bot.tree.sync(guild=guild)
+        print("✅ Comandos sincronizados!")
+    except Exception as e:
+        print(f"❌ Erro ao sincronizar: {e}")
 
+# ===== INICIALIZAÇÃO =====
 if __name__ == "__main__":
-    token = os.getenv('DISCORD_BOT_TOKEN')
+    token = os.getenv('DISCORD_TOKEN')  # Mude para DISCORD_TOKEN
     if not token:
-        print("❌ Token não encontrado! Configure a variável de ambiente DISCORD_BOT_TOKEN")
+        print("❌ Token não encontrado!")
         exit(1)
     
     try:
         bot.run(token)
-    except discord.LoginFailure:
-        print("❌ Token inválido! Verifique o token do bot.")
     except Exception as e:
-        print(f"❌ Erro ao iniciar o bot: {e}")
+        print(f"❌ Erro: {e}")
+
