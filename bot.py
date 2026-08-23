@@ -5,6 +5,7 @@ import uuid
 import os
 import json
 import aiohttp
+import asyncio
 from typing import Optional
 
 # ============================================
@@ -41,7 +42,6 @@ def set_user_data(user_id: int, key: str, value):
 async def get_roblox_avatar_url(username: str) -> Optional[str]:
     """Retorna a URL da imagem de cabeça do Roblox para o usuário"""
     try:
-        # 1. Obter userId pelo username
         async with aiohttp.ClientSession() as session:
             async with session.get(f"https://api.roblox.com/users/get-by-username?username={username}") as resp:
                 if resp.status != 200:
@@ -50,9 +50,6 @@ async def get_roblox_avatar_url(username: str) -> Optional[str]:
                 user_id = data.get('Id')
                 if not user_id:
                     return None
-
-            # 2. Obter URL do avatar
-            # Usamos o endpoint de thumbnail de cabeça
             avatar_url = f"https://www.roblox.com/headshot-thumbnail/image?userId={user_id}&width=420&height=420&format=png"
             return avatar_url
     except:
@@ -410,21 +407,34 @@ def has_manager_role():
     return app_commands.check(predicate)
 
 # ============================================
-# COMANDOS DE REGISTRO
+# COMANDOS DE TESTE
+# ============================================
+
+@bot.tree.command(name="ping", description="🏓 Teste simples")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("Pong!", ephemeral=True)
+
+@bot.tree.command(name="oi", description="👋 Teste simples 2")
+async def oi(interaction: discord.Interaction):
+    await interaction.response.send_message("Olá!", ephemeral=True)
+
+@bot.tree.command(name="teste", description="🧪 Teste simples 3")
+async def teste(interaction: discord.Interaction):
+    await interaction.response.send_message("Teste funcionou!", ephemeral=True)
+
+# ============================================
+# COMANDOS DE REGISTRO (NOVOS)
 # ============================================
 
 @bot.tree.command(name="setroblox", description="🎮 Registre seu nome de usuário Roblox")
 @app_commands.describe(usuario="Seu nome de usuário no Roblox")
 async def set_roblox(interaction: discord.Interaction, usuario: str):
-    # Validação básica
     if len(usuario) > 50:
         await interaction.response.send_message("❌ Nome muito longo (máx. 50 caracteres).", ephemeral=True)
         return
 
-    # Salva o username
     set_user_data(interaction.user.id, "roblox_username", usuario)
 
-    # Tenta buscar o avatar para confirmar
     avatar_url = await get_roblox_avatar_url(usuario)
     if avatar_url:
         set_user_data(interaction.user.id, "roblox_avatar", avatar_url)
@@ -515,20 +525,17 @@ async def freeagency(interaction: discord.Interaction, mensagem: str = "Estou di
         await interaction.response.send_message("❌ Canal não encontrado.", ephemeral=True)
         return
 
-    # ===== DADOS DO USUÁRIO =====
     user_data = get_user_data(interaction.user.id)
     roblox_username = user_data.get("roblox_username")
     roblox_avatar = user_data.get("roblox_avatar")
     experiencias = user_data.get("experiencias")
 
-    # ===== EMBED =====
     embed = discord.Embed(
         title="⚽ FREE AGENCY",
         description=mensagem,
         color=discord.Color.blue()
     )
 
-    # Nome do autor: se tiver Roblox, coloca o nome Roblox
     if roblox_username:
         author_name = f"{roblox_username} ({player.display_name})"
     else:
@@ -539,11 +546,9 @@ async def freeagency(interaction: discord.Interaction, mensagem: str = "Estou di
         icon_url=roblox_avatar if roblox_avatar else player.display_avatar.url
     )
 
-    # Se tiver avatar Roblox, coloca como thumbnail (imagem grande)
     if roblox_avatar:
         embed.set_thumbnail(url=roblox_avatar)
 
-    # Campos
     embed.add_field(name="👤 Jogador", value=player.mention, inline=True)
     embed.add_field(name="📋 Status", value="🟢 Disponível", inline=True)
 
@@ -668,12 +673,32 @@ async def sync_global(interaction: discord.Interaction):
         await interaction.edit_original_response(content=f"❌ Erro: {e}")
 
 # ============================================
+# COMANDO DE EMERGÊNCIA PARA FORÇAR SYNC
+# ============================================
+
+@bot.tree.command(name="forcar", description="🔄 Forçar sincronização de TODOS os comandos")
+@app_commands.default_permissions(administrator=True)
+async def forcar_sync(interaction: discord.Interaction):
+    await interaction.response.send_message("🔄 Forçando sincronização de todos os comandos...", ephemeral=True)
+    try:
+        guild = discord.Object(id=1496579366677909704)
+        await bot.tree.sync(guild=guild)
+        await asyncio.sleep(1)
+        await bot.tree.sync(guild=guild)
+        commands = await bot.tree.fetch_commands(guild=guild)
+        nomes = [cmd.name for cmd in commands]
+        await interaction.edit_original_response(
+            content=f"✅ Comandos sincronizados!\n📌 Comandos ativos: {', '.join(nomes)}"
+        )
+    except Exception as e:
+        await interaction.edit_original_response(content=f"❌ Erro: {e}")
+
+# ============================================
 # EVENTOS
 # ============================================
 
 @bot.event
 async def on_ready():
-    import asyncio
     print(f'✅ {bot.user.name} está online!')
     print(f'📡 ID: {bot.user.id}')
     print(f'📡 Servidores: {len(bot.guilds)}')
