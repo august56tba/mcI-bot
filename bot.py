@@ -612,6 +612,11 @@ def has_manager_role():
         return False
     return app_commands.check(predicate)
 
+# ===== COMANDO DE TESTE =====
+@bot.tree.command(name="ping", description="Testa se o bot está funcionando")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("🏓 Pong! Bot está online!", ephemeral=True)
+
 @bot.tree.command(
     name="freeagency",
     description="Coloca você na Free Agency para ser contratado"
