@@ -887,19 +887,115 @@ async def on_app_command_error(
 
     print(f"Erro em slash command: {error}")
 @bot.event
+@bot.event
 async def on_ready():
+    import asyncio
+    
     print(f'✅ {bot.user.name} está online!')
     print(f'📡 Conectado como: {bot.user.id}')
     print(f'📡 Conectado a {len(bot.guilds)} servidores')
-    print(f'🏆 Times configurados: {len(TEAM_ROLES)}')
     
-    # Sincronizar comandos novamente (garantia)
+    # ===== ESPERAR O BOT ESTABILIZAR =====
+    await asyncio.sleep(5)
+    
+    # ===== SINCRONIZAR DE TODAS AS FORMAS =====
     try:
         guild = discord.Object(id=1496579366677909704)
+        
+        # Método 1: Sync global
+        print("🔄 Sincronizando globalmente...")
+        await bot.tree.sync()
+        print("✅ Sync global concluído")
+        
+        # Método 2: Sync do servidor
+        print("🔄 Sincronizando servidor...")
         await bot.tree.sync(guild=guild)
-        print("✅ Comandos sincronizados!")
+        print("✅ Sync servidor concluído")
+        
+        # Método 3: Copy global to guild
+        print("🔄 Copiando global para servidor...")
+        bot.tree.copy_global_to(guild=guild)
+        await bot.tree.sync(guild=guild)
+        print("✅ Copy global concluído")
+        
+        # ===== LISTAR COMANDOS =====
+        await asyncio.sleep(2)
+        commands = await bot.tree.fetch_commands(guild=guild)
+        nomes = [cmd.name for cmd in commands]
+        print(f"📌 Comandos no servidor: {nomes if nomes else 'NENHUM!'}")
+        
+        # ===== LISTAR COMANDOS GLOBAIS =====
+        global_commands = await bot.tree.fetch_commands()
+        global_nomes = [cmd.name for cmd in global_commands]
+        print(f"📌 Comandos globais: {global_nomes if global_nomes else 'NENHUM!'}")
+        
     except Exception as e:
-        print(f"❌ Erro ao sincronizar: {e}")
+        print(f"❌ Erro na sincronização: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    # ===== STATUS =====
+    await bot.change_presence(
+        activity=discord.Activity(
+            type=discord.ActivityType.watching,
+            name="/freeagency | MCL Bot"
+        )
+    )
+    
+    print("🚀 Bot pronto!")
+
+# ===== COMANDOS DE TESTE (os mais simples possíveis) =====
+
+@bot.tree.command(name="ping", description="Teste simples")
+async def ping(interaction: discord.Interaction):
+    await interaction.response.send_message("Pong!", ephemeral=True)
+
+@bot.tree.command(name="oi", description="Teste simples 2")
+async def oi(interaction: discord.Interaction):
+    await interaction.response.send_message("Olá!", ephemeral=True)
+
+@bot.tree.command(name="teste", description="Teste simples 3")
+async def teste(interaction: discord.Interaction):
+    await interaction.response.send_message("Teste funcionou!", ephemeral=True)
+
+# ============================================
+# ============ COMANDO DE EMERGÊNCIA ============
+# ============================================
+
+@bot.tree.command(name="limpar", description="🧹 Limpar todos os comandos do servidor")
+@app_commands.default_permissions(administrator=True)
+async def limpar_comandos(interaction: discord.Interaction):
+    await interaction.response.send_message("🧹 Limpando comandos...", ephemeral=True)
+    
+    try:
+        guild = discord.Object(id=1496579366677909704)
+        
+        # Limpar TODOS os comandos do servidor
+        await bot.tree.sync(guild=guild)
+        
+        # Verificar se limpou
+        commands = await bot.tree.fetch_commands(guild=guild)
+        
+        await interaction.edit_original_response(
+            content=f"✅ Comandos limpos! {len(commands)} comandos restantes."
+        )
+    except Exception as e:
+        await interaction.edit_original_response(content=f"❌ Erro: {e}")
+
+@bot.tree.command(name="syncglobal", description="🌍 Sincronizar comandos GLOBALMENTE")
+@app_commands.default_permissions(administrator=True)
+async def sync_global(interaction: discord.Interaction):
+    await interaction.response.send_message("🌍 Sincronizando globalmente...", ephemeral=True)
+    
+    try:
+        # Sincronizar GLOBAL (não específico do servidor)
+        await bot.tree.sync()
+        
+        await interaction.edit_original_response(
+            content="✅ Comandos sincronizados GLOBALMENTE! Aguarde 5 minutos para aparecerem."
+        )
+    except Exception as e:
+        await interaction.edit_original_response(content=f"❌ Erro: {e}")
 
 # ===== INICIALIZAÇÃO =====
 if __name__ == "__main__":
