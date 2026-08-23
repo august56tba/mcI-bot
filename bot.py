@@ -3,7 +3,60 @@ from discord import app_commands
 from discord.ui import Button, View
 import uuid
 import os
+import json
+import aiohttp
 from typing import Optional
+
+# ============================================
+# ARQUIVO DE DADOS DOS USUÁRIOS
+# ============================================
+
+USER_DATA_FILE = 'user_data.json'
+
+def load_user_data():
+    if os.path.exists(USER_DATA_FILE):
+        with open(USER_DATA_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
+
+def save_user_data(data):
+    with open(USER_DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=4, ensure_ascii=False)
+
+def get_user_data(user_id: int) -> dict:
+    data = load_user_data()
+    return data.get(str(user_id), {})
+
+def set_user_data(user_id: int, key: str, value):
+    data = load_user_data()
+    if str(user_id) not in data:
+        data[str(user_id)] = {}
+    data[str(user_id)][key] = value
+    save_user_data(data)
+
+# ============================================
+# FUNÇÃO PARA BUSCAR AVATAR DO ROBLOX
+# ============================================
+
+async def get_roblox_avatar_url(username: str) -> Optional[str]:
+    """Retorna a URL da imagem de cabeça do Roblox para o usuário"""
+    try:
+        # 1. Obter userId pelo username
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://api.roblox.com/users/get-by-username?username={username}") as resp:
+                if resp.status != 200:
+                    return None
+                data = await resp.json()
+                user_id = data.get('Id')
+                if not user_id:
+                    return None
+
+            # 2. Obter URL do avatar
+            # Usamos o endpoint de thumbnail de cabeça
+            avatar_url = f"https://www.roblox.com/headshot-thumbnail/image?userId={user_id}&width=420&height=420&format=png"
+            return avatar_url
+    except:
+        return None
 
 # ============================================
 # CONFIGURAÇÃO DO BOT
@@ -20,7 +73,6 @@ class MCLBot(discord.Client):
         self.tree = app_commands.CommandTree(self)
 
     async def setup_hook(self):
-        # Sincroniza os comandos no servidor específico
         guild = discord.Object(id=1496579366677909704)
         self.tree.copy_global_to(guild=guild)
         await self.tree.sync(guild=guild)
@@ -66,7 +118,7 @@ def get_team_emoji(team_info: dict) -> str:
     return f"<:{team_info['emoji_name']}:{team_info['emoji_id']}>"
 
 # ============================================
-# BOTÕES PARA OFERTAS
+# BOTÕES PARA OFERTAS (OfferButtons)
 # ============================================
 
 class OfferButtons(View):
@@ -358,25 +410,88 @@ def has_manager_role():
     return app_commands.check(predicate)
 
 # ============================================
-# COMANDOS SLASH
+# COMANDOS DE REGISTRO
 # ============================================
 
-# --- Comandos de teste ---
-@bot.tree.command(name="ping", description="🏓 Teste simples")
-async def ping(interaction: discord.Interaction):
-    await interaction.response.send_message("Pong!", ephemeral=True)
+@bot.tree.command(name="setroblox", description="🎮 Registre seu nome de usuário Roblox")
+@app_commands.describe(usuario="Seu nome de usuário no Roblox")
+async def set_roblox(interaction: discord.Interaction, usuario: str):
+    # Validação básica
+    if len(usuario) > 50:
+        await interaction.response.send_message("❌ Nome muito longo (máx. 50 caracteres).", ephemeral=True)
+        return
 
-@bot.tree.command(name="oi", description="👋 Teste simples 2")
-async def oi(interaction: discord.Interaction):
-    await interaction.response.send_message("Olá!", ephemeral=True)
+    # Salva o username
+    set_user_data(interaction.user.id, "roblox_username", usuario)
 
-@bot.tree.command(name="teste", description="🧪 Teste simples 3")
-async def teste(interaction: discord.Interaction):
-    await interaction.response.send_message("Teste funcionou!", ephemeral=True)
+    # Tenta buscar o avatar para confirmar
+    avatar_url = await get_roblox_avatar_url(usuario)
+    if avatar_url:
+        set_user_data(interaction.user.id, "roblox_avatar", avatar_url)
+        embed = discord.Embed(
+            title="✅ Roblox registrado!",
+            description=f"Seu nome Roblox: **{usuario}**\nAvatar carregado com sucesso.",
+            color=discord.Color.green()
+        )
+        embed.set_image(url=avatar_url)
+    else:
+        embed = discord.Embed(
+            title="✅ Roblox registrado!",
+            description=f"Seu nome Roblox: **{usuario}**\n(Não foi possível carregar o avatar automaticamente, mas você já pode usar.)",
+            color=discord.Color.green()
+        )
 
-# --- Free Agency ---
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="setexperiencias", description="📝 Registre suas experiências (ligas, times, etc.)")
+@app_commands.describe(experiencias="Suas experiências (ex: MR25, PRS, NBA 2024)")
+async def set_experiencias(interaction: discord.Interaction, experiencias: str):
+    if len(experiencias) > 500:
+        await interaction.response.send_message("❌ Texto muito longo (máx. 500 caracteres).", ephemeral=True)
+        return
+
+    set_user_data(interaction.user.id, "experiencias", experiencias)
+
+    embed = discord.Embed(
+        title="✅ Experiências registradas!",
+        description=f"Suas experiências:\n{experiencias}",
+        color=discord.Color.green()
+    )
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="meuprofile", description="👤 Veja seus dados registrados")
+async def meu_profile(interaction: discord.Interaction):
+    user_data = get_user_data(interaction.user.id)
+    if not user_data:
+        await interaction.response.send_message("❌ Você ainda não registrou nada. Use `/setroblox` e `/setexperiencias`.", ephemeral=True)
+        return
+
+    embed = discord.Embed(title=f"👤 Perfil de {interaction.user.display_name}", color=discord.Color.blue())
+    embed.set_thumbnail(url=interaction.user.display_avatar.url)
+
+    roblox = user_data.get("roblox_username")
+    if roblox:
+        embed.add_field(name="🎮 Roblox", value=roblox, inline=True)
+        avatar_url = user_data.get("roblox_avatar")
+        if avatar_url:
+            embed.set_image(url=avatar_url)
+    else:
+        embed.add_field(name="🎮 Roblox", value="Não registrado", inline=True)
+
+    experiencias = user_data.get("experiencias")
+    if experiencias:
+        embed.add_field(name="📝 Experiências", value=experiencias, inline=False)
+    else:
+        embed.add_field(name="📝 Experiências", value="Não registradas", inline=False)
+
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# ============================================
+# COMANDO FREEAGENCY (MODIFICADO)
+# ============================================
+
 @bot.tree.command(name="freeagency", description="⚽ Coloca você na Free Agency")
-@app_commands.describe(mensagem="Informação adicional")
+@app_commands.describe(mensagem="Sua mensagem principal")
 async def freeagency(interaction: discord.Interaction, mensagem: str = "Estou disponível!"):
     if not interaction.guild:
         await interaction.response.send_message("❌ Use no servidor.", ephemeral=True)
@@ -400,17 +515,51 @@ async def freeagency(interaction: discord.Interaction, mensagem: str = "Estou di
         await interaction.response.send_message("❌ Canal não encontrado.", ephemeral=True)
         return
 
-    embed = discord.Embed(title="⚽ FREE AGENCY", description=mensagem, color=discord.Color.blue())
-    embed.set_author(name=f"{player.display_name} está disponível!", icon_url=player.display_avatar.url)
+    # ===== DADOS DO USUÁRIO =====
+    user_data = get_user_data(interaction.user.id)
+    roblox_username = user_data.get("roblox_username")
+    roblox_avatar = user_data.get("roblox_avatar")
+    experiencias = user_data.get("experiencias")
+
+    # ===== EMBED =====
+    embed = discord.Embed(
+        title="⚽ FREE AGENCY",
+        description=mensagem,
+        color=discord.Color.blue()
+    )
+
+    # Nome do autor: se tiver Roblox, coloca o nome Roblox
+    if roblox_username:
+        author_name = f"{roblox_username} ({player.display_name})"
+    else:
+        author_name = player.display_name
+
+    embed.set_author(
+        name=f"{author_name} está disponível!",
+        icon_url=roblox_avatar if roblox_avatar else player.display_avatar.url
+    )
+
+    # Se tiver avatar Roblox, coloca como thumbnail (imagem grande)
+    if roblox_avatar:
+        embed.set_thumbnail(url=roblox_avatar)
+
+    # Campos
     embed.add_field(name="👤 Jogador", value=player.mention, inline=True)
     embed.add_field(name="📋 Status", value="🟢 Disponível", inline=True)
+
+    if experiencias:
+        embed.add_field(name="📝 Experiências", value=experiencias, inline=False)
+
     embed.set_footer(text=f"ID: {player.id}")
 
     view = FreeAgencyView(player.id, interaction.guild.id)
     await channel.send(embed=embed, view=view)
     await interaction.response.send_message(f"✅ Publicado em {channel.mention}!", ephemeral=True)
 
-# --- Offer ---
+# ============================================
+# COMANDO OFFER (INALTERADO)
+# ============================================
+
 @bot.tree.command(name="offer", description="📩 Envia oferta para um jogador")
 @app_commands.describe(user="Jogador")
 @has_manager_role()
@@ -452,7 +601,10 @@ async def offer(interaction: discord.Interaction, user: discord.Member):
     except discord.Forbidden:
         await interaction.response.send_message("❌ Usuário com DMs desativadas.", ephemeral=True)
 
-# --- Scouting ---
+# ============================================
+# COMANDO SCOUTING (INALTERADO)
+# ============================================
+
 @bot.tree.command(name="scouting", description="🔍 Envia mensagem de scouting")
 @app_commands.describe(mensagem="Mensagem personalizada")
 @has_manager_role()
